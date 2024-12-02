@@ -77,8 +77,9 @@ namespace jag::compressor::zstd {
 		std::vector<T> decompress(const void* src, size_t srcSize) {
 			size_t const cBuffSize = ZSTD_getFrameContentSize(src, srcSize);
 			std::vector<T> dst(cBuffSize / sizeof(T));
-			decompress(src, srcSize, dst.data(), cBuffSize);
-
+			size_t decompressedSize = decompress(src, srcSize, dst.data(), cBuffSize);
+			dst.resize(decompressedSize / sizeof(T));
+			dst.shrink_to_fit();
 			return dst;
 		}
 
@@ -91,6 +92,29 @@ namespace jag::compressor::zstd {
 		}
 
 		size_t decompress(const void* src, size_t srcSize, void* dst, size_t dstSize);
+
+
+		template <typename T = char, std::ranges::contiguous_range R1>
+		std::vector<T> decompress_stream(const R1& src) {
+			auto const srcSize = std::ranges::size(src) * sizeof(std::ranges::range_value_t<R1>);
+			size_t const cBuffSize = ZSTD_getFrameContentSize(std::ranges::data(src), srcSize);
+			std::vector<T> dst(cBuffSize / sizeof(T));
+			decompress_stream(std::ranges::data(src), srcSize, dst.data(), cBuffSize);
+			size_t decompressedSize = decompress_stream(std::ranges::data(src), srcSize, dst.data(), cBuffSize);
+			dst.resize(decompressedSize / sizeof(T));
+			dst.shrink_to_fit();
+			return dst;
+		}
+
+
+		size_t decompress_stream(const void* src, size_t srcSize, void* dst, size_t dstSize)
+		{
+			size_t const buffInSize = ZSTD_DStreamInSize();
+			size_t const buffOutSize = ZSTD_DStreamOutSize();
+			static std::vector<char> outBuffer(buffOutSize);
+			return decompress(src, srcSize, dst, dstSize);
+
+		}
 	private:
 		/**
 		 * @brief Get the compression context.

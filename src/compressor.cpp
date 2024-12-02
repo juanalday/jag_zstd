@@ -59,7 +59,10 @@ size_t Compression::compress(const void* src, size_t srcSize, void* dst, size_t 
 }
 
 size_t Compression::decompress(const void* src, size_t srcSize, void* dst, size_t dstSize) {
+	size_t buffOutSize = ZSTD_DStreamOutSize();
+
 	size_t const cBuffSize = ZSTD_getFrameContentSize(src, srcSize);
+
 	if (cBuffSize == ZSTD_CONTENTSIZE_ERROR) {
 		throw std::runtime_error{ "ZSTD_getFrameContentSize() failed" };
 	}
