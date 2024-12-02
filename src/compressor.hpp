@@ -4,7 +4,6 @@
 #include "zstd.h"
 #include <zstd_errors.h>
 
-#include <format>
 #include <memory>
 #include <stdexcept>
 #include <string_view>
@@ -14,29 +13,36 @@
 namespace jag::compressor::zstd {
 
 	class Compression {
-		using cctx_pointer_type = std::add_pointer_t<ZSTD_CCtx>;
-		using dctx_pointer_type = std::add_pointer_t<ZSTD_DCtx>;
+		using cctx_type = ZSTD_CCtx;
+		using dctx_type = ZSTD_DCtx;
 		constexpr static int s_defaultCompressionLevel = 1;
 
 	public:
 		static constexpr std::string_view zstdVersion() { return ZSTD_VERSION_STRING; }
 
-		Compression& setParameter(ZSTD_cParameter param, int value) {
-			if (ZSTD_isError(ZSTD_CCtx_setParameter(cctx(), param, value))) [[unlikely]] {
-				throw std::runtime_error{ "ZSTD_CCtx_setParameter() failed" };
-			}
-			return *this;
-		}
+		Compression();
 
-		Compression& setCompressionLevel(int level) { return setParameter(ZSTD_c_compressionLevel, level); }
+		/**
+		* @brief Set a parameter for the compression context.
+		*
+		* @param param The parameter to set.
+		* @param value The value to set the parameter to.
+		* @return *this
+		* @throws std::runtime_error if ZSTD_CCtx_setParameter() fails.
+		*/
+		Compression& setParameter(ZSTD_cParameter param, int value);
 
-		int compressionLevel() const {
-			int currentCompressionLevel;
-			if (ZSTD_isError(ZSTD_CCtx_getParameter(m_cctx.get(), ZSTD_c_compressionLevel, &currentCompressionLevel))) {
-				throw std::runtime_error{ "ZSTD_CCtx_getParameter() failed" };
-			}
-			return currentCompressionLevel;
-		}
+		/**
+		* @brief Set the compression level.
+		*
+		* @param level The compression level to set.
+		* @return *this
+		* @throws std::runtime_error if the operation fails.
+		*/
+		Compression& setCompressionLevel(int level);
+
+		int compressionLevel() const;
+
 		template <typename T = char, std::ranges::contiguous_range R1>
 		std::vector<T> compress(const R1& src) {
 			auto const srcSize = std::ranges::size(src) * sizeof(std::ranges::range_value_t<R1>);
@@ -59,52 +65,7 @@ namespace jag::compressor::zstd {
 			dst.shrink_to_fit();
 			return dst;
 		}
-		size_t compress(const void* src, size_t srcSize, void* dst, size_t dstSize) {
-			if (dstSize < ZSTD_compressBound(srcSize)) [[unlikely]] {
-				throw std::runtime_error{ "dst buffer is too small" };
-			}
-			auto const compressedSize = ZSTD_compress2(cctx(), dst, dstSize, src, srcSize);
-			if (ZSTD_isError(compressedSize)) {
-				throw std::runtime_error{ "ZSTD_compressCCtx() failed" };
-			}
-			return compressedSize;
-		}
-	protected:
-		cctx_pointer_type cctx() {
-			if (!m_cctx) [[unlikely]] {
-				m_cctx.reset(ZSTD_createCCtx());
-				if (!m_cctx) [[unlikely]] {
-					throw std::runtime_error{ "ZSTD_createCCtx() failed" };
-				}
-				setParameter(ZSTD_c_compressionLevel, s_defaultCompressionLevel);
-			}
-			return m_cctx.get();
-		}
-		dctx_pointer_type dctx() {
-			if (!m_dctx) [[unlikely]] {
-				m_dctx.reset(ZSTD_createDCtx());
-				if (!m_dctx) [[unlikely]] {
-					throw std::runtime_error{ "ZSTD_createDCtx() failed" };
-				}
-			}
-			return m_dctx.get();
-		}
-
-
-	private:
-		std::unique_ptr<ZSTD_CCtx, decltype(&ZSTD_freeCCtx)> m_cctx = { nullptr, ZSTD_freeCCtx };
-		std::unique_ptr<ZSTD_DCtx, decltype(&ZSTD_freeDCtx)> m_dctx = { nullptr, ZSTD_freeDCtx };
-
-	};
-	class Compressor : public Compression {
-	public:
-
-
-		
-	};
-
-	class Decompressor : public Compression {
-	public:
+		size_t compress(const void* src, size_t srcSize, void* dst, size_t dstSize);
 
 		template <typename T = char, std::ranges::contiguous_range R1>
 		std::vector<T> decompress(const R1& src) {
@@ -128,22 +89,30 @@ namespace jag::compressor::zstd {
 			auto totalDecompresed = decompress(std::ranges::data(src), srcSize, std::ranges::data(dst), dstSize);
 			return totalDecompresed / sizeof(std::ranges::range_value_t<R2>);
 		}
-		size_t decompress(const void* src, size_t srcSize, void* dst, size_t dstSize) {
-			size_t const cBuffSize = ZSTD_getFrameContentSize(src, srcSize);
-			if (cBuffSize == ZSTD_CONTENTSIZE_ERROR) {
-				throw std::runtime_error{ "ZSTD_getFrameContentSize() failed" };
-			}
-			if (cBuffSize > dstSize) {
-				throw std::runtime_error{ "dst buffer is too small" };
-			}
 
-			auto const decompressedSize = ZSTD_decompressDCtx(dctx(), dst, dstSize, src, srcSize);
-			if (ZSTD_isError(decompressedSize)) {
-				throw std::runtime_error{ "ZSTD_decompressDCtx() failed" };
-			}
-			return decompressedSize;
-		}
+		size_t decompress(const void* src, size_t srcSize, void* dst, size_t dstSize);
+	private:
+		/**
+		 * @brief Get the compression context.
+		 *
+		 * @return a pointer to the compression context.
+		 */
+		std::add_pointer_t<cctx_type> cctx();
+
+		/**
+		 * @brief Get the decompression context.
+		 *
+		 * @return a pointer to the decompression context.
+		 */
+		std::add_pointer_t<dctx_type> dctx();
+
+	private:
+		std::unique_ptr<ZSTD_CCtx_params, decltype(&ZSTD_freeCCtxParams)> m_params = { ZSTD_createCCtxParams(), ZSTD_freeCCtxParams };
+		std::unique_ptr<ZSTD_CCtx, decltype(&ZSTD_freeCCtx)> m_cctx = { nullptr, ZSTD_freeCCtx };
+		std::unique_ptr<ZSTD_DCtx, decltype(&ZSTD_freeDCtx)> m_dctx = { nullptr, ZSTD_freeDCtx };
+
 	};
+
 
 } // end of namespace jag::compressor::zstd
 
